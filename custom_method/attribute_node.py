@@ -134,7 +134,7 @@ allowed_aggregations = {'sum', 'mean'}
 def custom_attribute_node(model: HookedTransformer, graph: Graph, dataloader: DataLoader, metric: Callable[[Tensor], Tensor], 
                    intervention: Literal['patching', 'zero', 'mean','mean-positional', 'optimal']='patching', 
                    aggregation='sum', ig_steps: Optional[int]=None, intervention_dataloader: Optional[DataLoader]=None, 
-                   quiet:bool=False, neuron:bool=False):
+                   optimal_ablation_path: Optional[str] = None, quiet:bool=False, neuron:bool=False):
     assert model.cfg.use_attn_result, "Model must be configured to use attention result (model.cfg.use_attn_result)"
     assert model.cfg.use_split_qkv_input, "Model must be configured to use split qkv inputs (model.cfg.use_split_qkv_input)"
     assert model.cfg.use_hook_mlp_in, "Model must be configured to use hook MLP in (model.cfg.use_hook_mlp_in)"

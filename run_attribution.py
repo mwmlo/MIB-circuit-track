@@ -14,6 +14,8 @@ from eap.attribute_node import attribute_node
 from MIB_circuit_track.metrics import get_metric
 from MIB_circuit_track.utils import MODEL_NAME_TO_FULLNAME, TASKS_TO_HF_NAMES, COL_MAPPING
 
+from custom_method.attribute_node import custom_attribute_node
+
 
 def load_interpbench_model():
     hf_cfg = hf_hub_download("mib-bench/interpbench", filename="ll_model_cfg.pkl")
@@ -87,10 +89,16 @@ if __name__ == "__main__":
                             ig_steps=args.ig_steps, optimal_ablation_path=args.optimal_ablation_path,
                             intervention_dataloader=dataloader)
             else:
-                attribute_node(model, graph, dataloader, attribution_metric, args.method, 
-                                args.ablation, neuron=args.level == 'neuron', ig_steps=args.ig_steps,
-                                optimal_ablation_path=args.optimal_ablation_path,
-                                intervention_dataloader=dataloader)
+                if args.method == 'custom':
+                    custom_attribute_node(model, graph, dataloader, attribution_metric, args.ablation, 
+                                          neuron=args.level == 'neuron', ig_steps=args.ig_steps, 
+                                          optimal_ablation_path=args.optimal_ablation_path,
+                                          intervention_dataloader=dataloader)
+                else:
+                    attribute_node(model, graph, dataloader, attribution_metric, args.method, 
+                                    args.ablation, neuron=args.level == 'neuron', ig_steps=args.ig_steps,
+                                    optimal_ablation_path=args.optimal_ablation_path,
+                                    intervention_dataloader=dataloader)
 
             # Save the graph
             method_name_saveable = f"{args.method}_{args.ablation}_{args.level}"
