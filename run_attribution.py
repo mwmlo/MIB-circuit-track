@@ -92,8 +92,6 @@ if __name__ == "__main__":
                                 optimal_ablation_path=args.optimal_ablation_path,
                                 intervention_dataloader=dataloader)
 
-            print("Neuron scores", graph.neurons_scores)
-
             # Save the graph
             method_name_saveable = f"{args.method}_{args.ablation}_{args.level}"
             circuit_path = os.path.join(args.circuit_dir, method_name_saveable, f"{task.replace('_', '-')}_{model_name}")
