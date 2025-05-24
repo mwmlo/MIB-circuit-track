@@ -70,7 +70,7 @@ if __name__ == "__main__":
         for task in args.tasks:
             if f"{task.replace('_', '-')}_{model_name}" not in COL_MAPPING:
                 continue
-            graph = Graph.from_model(model)
+            graph = Graph.from_model(model, neuron_level=args.level == 'neuron', node_scores=args.level == 'node')
             hf_task_name = f'mib-bench/{TASKS_TO_HF_NAMES[task]}'
             dataset = HFEAPDataset(hf_task_name, model.tokenizer, split=args.split, task=task, model_name=model_name, num_examples=args.num_examples)
             if args.head is not None:
@@ -91,6 +91,8 @@ if __name__ == "__main__":
                                 args.ablation, neuron=args.level == 'neuron', ig_steps=args.ig_steps,
                                 optimal_ablation_path=args.optimal_ablation_path,
                                 intervention_dataloader=dataloader)
+
+            print("Neuron scores", graph.neurons_scores)
 
             # Save the graph
             method_name_saveable = f"{args.method}_{args.ablation}_{args.level}"
