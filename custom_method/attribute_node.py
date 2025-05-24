@@ -9,10 +9,10 @@ from transformer_lens.hook_points import HookPoint
 from tqdm import tqdm
 from einops import einsum
 
-from .graph import Graph
-from .utils import tokenize_plus, compute_mean_activations, load_ablations
-from .evaluate import evaluate_baseline, evaluate_graph
-from .eap import make_hooks_and_matrices
+from eap.graph import Graph
+from eap.utils import tokenize_plus, compute_mean_activations, load_ablations
+from eap.evaluate import evaluate_baseline, evaluate_graph
+from eap.attribute_node import make_hooks_and_matrices
 
 
 def get_scores_ig_activations_directional(
@@ -125,7 +125,8 @@ def asymmetry_score(corrupt_to_clean: Tensor, clean_to_corrupt: Tensor):
         f"Cannot calculate asymmetry between matrices of different shapes, {corrupt_to_clean.shape} and {clean_to_corrupt.shape}"
 
     # Expect attribution scores in opposite directions to cancel out
-    max_scores = torch.amax((corrupt_to_clean + clean_to_corrupt), dim=(1,2), keepdim=True)
+    rem_dims = tuple(range(1, len(corrupt_to_clean.shape)))
+    max_scores = torch.amax((corrupt_to_clean + clean_to_corrupt), dim=rem_dims, keepdim=True)
     return torch.div((corrupt_to_clean + clean_to_corrupt), max_scores)
 
 
@@ -165,7 +166,7 @@ def custom_attribute_node(model: HookedTransformer, graph: Graph, dataloader: Da
     abs_scores_asymmetry = scores_asymmetry.abs()
     threshold = torch.quantile(abs_scores_asymmetry.flatten(), 0.9)
 
-    latent_components = abs_scores >= threshold
+    latent_components = abs_scores_asymmetry >= threshold
     latent_components_indices = latent_components.nonzero()
 
     # Use the attribution scores for patching from clean to corrupt for latent components

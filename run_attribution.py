@@ -14,7 +14,7 @@ from eap.attribute_node import attribute_node
 from MIB_circuit_track.metrics import get_metric
 from MIB_circuit_track.utils import MODEL_NAME_TO_FULLNAME, TASKS_TO_HF_NAMES, COL_MAPPING
 
-from custom_method.attribute_node import custom_attribute_node
+from custom_method import custom_attribute_node
 
 
 def load_interpbench_model():
