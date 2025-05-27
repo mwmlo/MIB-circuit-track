@@ -174,14 +174,10 @@ def custom_attribute_node(model: HookedTransformer, graph: Graph, dataloader: Da
 
     ### COMPLETE CIRCUIT IMPLEMENTATION
     # Use the attribution score with the greatest magnitude for each latent component
-    if neuron:
-        for n, d in latent_components_indices:
-            if abs(clean_to_corrupt_scores[n, d]) >= abs(scores[n, d]):
-                scores[n, d] = corrupt_to_clean_scores[n, d]
-    else:
-        for n in latent_components_indices:
-            if abs(clean_to_corrupt_scores[n]) >= abs(scores[n]):
-                scores[n] = corrupt_to_clean_scores[n]
+
+    magnitude_mask = clean_to_corrupt_scores.abs() >= scores.abs()
+    combined_mask = latent_components.bool() & magnitude_mask
+    scores[combined_mask] = clean_to_corrupt_scores[combined_mask]
 
     ### AVERAGE IMPLEMENTATION
 
