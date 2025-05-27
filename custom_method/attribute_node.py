@@ -170,13 +170,17 @@ def custom_attribute_node(model: HookedTransformer, graph: Graph, dataloader: Da
     latent_components_indices = latent_components.nonzero()
 
     # Use the attribution scores for patching from clean to corrupt for latent components
+    # Use the average between the two directions, to account for latent components being not as important
+    # Note that scores should cancel out in opposite directions, so we subtract instead of adding
     scores = corrupt_to_clean_scores.clone()
     if neuron:
         for n, d in latent_components_indices:
-            scores[n, d] = clean_to_corrupt_scores[n, d]
+            scores[n, d] -= clean_to_corrupt_scores[n, d]
+            scores[n, d] /= 2
     else:
         for n in latent_components_indices:
-            scores[n] = clean_to_corrupt_scores[n]
+            scores[n] -= clean_to_corrupt_scores[n]
+            scores[n] /= 2
 
     if aggregation == 'mean':
         scores /= model.cfg.d_model
