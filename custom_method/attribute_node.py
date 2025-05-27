@@ -170,20 +170,24 @@ def custom_attribute_node(model: HookedTransformer, graph: Graph, dataloader: Da
     latent_components_indices = latent_components.nonzero()
 
     # Corrupt -> clean IG scores are negatively correlated with corrupt->clean AP scores.
+    # Note that changing the signage is different from the first run!
     scores = -corrupt_to_clean_scores.clone()
 
     ### COMPLETE CIRCUIT IMPLEMENTATION
     # Use the attribution score with the greatest magnitude for each latent component
 
-    magnitude_mask = clean_to_corrupt_scores.abs() >= scores.abs()
-    combined_mask = latent_components.bool() & magnitude_mask
-    scores[combined_mask] = clean_to_corrupt_scores[combined_mask]
+    # magnitude_mask = clean_to_corrupt_scores.abs() >= scores.abs()
+    # combined_mask = latent_components.bool() & magnitude_mask
+    # scores[combined_mask] = clean_to_corrupt_scores[combined_mask]
 
     ### AVERAGE IMPLEMENTATION
 
     # # Use the attribution scores for patching from clean to corrupt for latent components
     # # Use the average between the two directions, to account for latent components being not as important
     # # Note that scores are in opposite directions, so we subtract instead of adding
+
+    scores[latent_components.bool()] += clean_to_corrupt_scores[latent_components.bool()]
+    scores[latent_components.bool()] /= 2
 
     # if neuron:
     #     for n, d in latent_components_indices:
