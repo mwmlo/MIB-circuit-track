@@ -169,18 +169,34 @@ def custom_attribute_node(model: HookedTransformer, graph: Graph, dataloader: Da
     latent_components = abs_scores_asymmetry >= threshold
     latent_components_indices = latent_components.nonzero()
 
-    # Use the attribution scores for patching from clean to corrupt for latent components
-    # Use the average between the two directions, to account for latent components being not as important
-    # Note that scores should cancel out in opposite directions, so we subtract instead of adding
-    scores = corrupt_to_clean_scores.clone()
+    # Corrupt -> clean IG scores are negatively correlated with corrupt->clean AP scores.
+    scores = -corrupt_to_clean_scores.clone()
+
+    ### COMPLETE CIRCUIT IMPLEMENTATION
+    # Use the attribution score with the greatest magnitude for each latent component
     if neuron:
         for n, d in latent_components_indices:
-            scores[n, d] -= clean_to_corrupt_scores[n, d]
-            scores[n, d] /= 2
+            if abs(clean_to_corrupt_scores[n, d]) >= abs(scores[n, d]):
+                scores[n, d] = corrupt_to_clean_scores[n, d]
     else:
         for n in latent_components_indices:
-            scores[n] -= clean_to_corrupt_scores[n]
-            scores[n] /= 2
+            if abs(clean_to_corrupt_scores[n]) >= abs(scores[n]):
+                scores[n] = corrupt_to_clean_scores[n]
+
+    ### AVERAGE IMPLEMENTATION
+
+    # # Use the attribution scores for patching from clean to corrupt for latent components
+    # # Use the average between the two directions, to account for latent components being not as important
+    # # Note that scores are in opposite directions, so we subtract instead of adding
+
+    # if neuron:
+    #     for n, d in latent_components_indices:
+    #         scores[n, d] += clean_to_corrupt_scores[n, d]
+    #         scores[n, d] /= 2
+    # else:
+    #     for n in latent_components_indices:
+    #         scores[n] += clean_to_corrupt_scores[n]
+    #         scores[n] /= 2
 
     if aggregation == 'mean':
         scores /= model.cfg.d_model
