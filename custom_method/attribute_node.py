@@ -57,6 +57,7 @@ def get_scores_ig_activations_directional(
 
         if intervention == 'patching':
             with model.hooks(fwd_hooks=fwd_hooks_corrupted):
+                # _ = model(corrupted_tokens, attention_mask=attention_mask)
                 # Note that these hooks already multiply the scores by the activation difference
                 if patch_direction == 'patch-in-corrupt':
                     _ = model(corrupted_tokens, attention_mask=attention_mask)
@@ -70,12 +71,13 @@ def get_scores_ig_activations_directional(
                 activation_difference += optimal_ablations
 
         with model.hooks(fwd_hooks=fwd_hooks_clean):
+            # clean_logits = model(clean_tokens, attention_mask=attention_mask)
             if patch_direction == 'patch-in-corrupt':
                 clean_logits = model(clean_tokens, attention_mask=attention_mask)
             else:
                 clean_logits = model(corrupted_tokens, attention_mask=attention_mask)
             
-            activation_difference += activations_corrupted.clone().detach() - activations_clean.clone().detach()
+        activation_difference += activations_corrupted.clone().detach() - activations_clean.clone().detach()
 
         def output_interpolation_hook(k: int, clean: torch.Tensor, corrupted: torch.Tensor):
             def hook_fn(activations: torch.Tensor, hook):
@@ -95,12 +97,15 @@ def get_scores_ig_activations_directional(
             for step in range(1, steps+1):
                 total_steps += 1
                 
-                if patch_direction == 'patch-in-corrupt':
-                    clean_acts = activations_clean[:, :, graph.forward_index(node)]
-                    corrupted_acts = activations_corrupted[:, :, graph.forward_index(node)]
-                else:
-                    clean_acts = activations_corrupted[:, :, graph.forward_index(node)]
-                    corrupted_acts = activations_clean[:, :, graph.forward_index(node)]
+                # if patch_direction == 'patch-in-corrupt':
+                #     clean_acts = activations_clean[:, :, graph.forward_index(node)]
+                #     corrupted_acts = activations_corrupted[:, :, graph.forward_index(node)]
+                # else:
+                #     clean_acts = activations_corrupted[:, :, graph.forward_index(node)]
+                #     corrupted_acts = activations_clean[:, :, graph.forward_index(node)]
+
+                clean_acts = activations_clean[:, :, graph.forward_index(node)]
+                corrupted_acts = activations_corrupted[:, :, graph.forward_index(node)]
                 
                 fwd_hooks = [(node.out_hook, output_interpolation_hook(step, clean_acts, corrupted_acts))]
 
