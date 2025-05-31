@@ -68,11 +68,13 @@ if __name__ == "__main__":
         model.cfg.use_attn_result = True
         model.cfg.use_hook_mlp_in = True
         model.cfg.ungroup_grouped_query_attention = True
+        neuron_level = args.level == 'neuron'
+        node_scores = args.level == 'node'
 
         for task in args.tasks:
             if f"{task.replace('_', '-')}_{model_name}" not in COL_MAPPING:
                 continue
-            graph = Graph.from_model(model, neuron_level=args.level == 'neuron', node_scores=args.level == 'node')
+            graph = Graph.from_model(model, neuron_level=neuron_level, node_scores=node_scores)
             hf_task_name = f'mib-bench/{TASKS_TO_HF_NAMES[task]}'
             dataset = HFEAPDataset(hf_task_name, model.tokenizer, split=args.split, task=task, model_name=model_name, num_examples=args.num_examples)
             if args.head is not None:
@@ -85,9 +87,12 @@ if __name__ == "__main__":
             metric = get_metric('logit_diff', task, model.tokenizer, model)
             attribution_metric = partial(metric, mean=True, loss=True)
             if args.level == 'edge':
-                attribute(model, graph, dataloader, attribution_metric, args.method, args.ablation, 
-                            ig_steps=args.ig_steps, optimal_ablation_path=args.optimal_ablation_path,
-                            intervention_dataloader=dataloader)
+                if args.method == 'custom':
+                    pass
+                else:
+                    attribute(model, graph, dataloader, attribution_metric, args.method, args.ablation, 
+                                ig_steps=args.ig_steps, optimal_ablation_path=args.optimal_ablation_path,
+                                intervention_dataloader=dataloader)
             else:
                 if args.method == 'custom':
                     custom_attribute_node(model, graph, dataloader, attribution_metric, args.ablation, 
