@@ -105,7 +105,7 @@ def get_scores_ig_activations_directional_edge(
 
 
 allowed_aggregations = {'sum', 'mean'}    
-def custom_attribute(model: HookedTransformer, graph: Graph, dataloader: DataLoader, metric: Callable[[Tensor], Tensor],
+def custom_attribute_edge(model: HookedTransformer, graph: Graph, dataloader: DataLoader, metric: Callable[[Tensor], Tensor],
               intervention: Literal['patching', 'zero', 'mean','mean-positional', 'optimal']='patching', aggregation='sum', 
               ig_steps: Optional[int]=None, intervention_dataloader: Optional[DataLoader]=None, 
               optimal_ablation_path: Optional[str]=None, quiet=False):

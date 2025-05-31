@@ -14,7 +14,7 @@ from eap.attribute_node import attribute_node
 from MIB_circuit_track.metrics import get_metric
 from MIB_circuit_track.utils import MODEL_NAME_TO_FULLNAME, TASKS_TO_HF_NAMES, COL_MAPPING
 
-from custom_method import custom_attribute_node
+from custom_method import custom_attribute_node, custom_attribute_edge
 
 
 def load_interpbench_model():
@@ -88,7 +88,9 @@ if __name__ == "__main__":
             attribution_metric = partial(metric, mean=True, loss=True)
             if args.level == 'edge':
                 if args.method == 'custom':
-                    pass
+                    custom_attribute_edge(model, graph, dataloader, attribution_metric, args.ablation,
+                                          ig_steps=args.ig_steps, intervention_dataloader=dataloader, 
+                                          optimal_ablation_path=args.optimal_ablation_path)
                 else:
                     attribute(model, graph, dataloader, attribution_metric, args.method, args.ablation, 
                                 ig_steps=args.ig_steps, optimal_ablation_path=args.optimal_ablation_path,
