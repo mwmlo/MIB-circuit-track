@@ -15,6 +15,99 @@ from eap.evaluate import evaluate_baseline, evaluate_graph
 from .utils import asymmetry_score
 
 
+def get_scores_inputs_ig_directional_edge(
+    model: HookedTransformer, graph: Graph, dataloader: DataLoader, 
+    metric: Callable[[Tensor], Tensor], steps=30, quiet=False,
+    patch_direction: Literal['patch-in-corrupt', 'patch-in-clean']='patch-in-corrupt'
+):
+    """Gets edge attribution scores using EAP with integrated gradients.
+
+    Args:
+        model (HookedTransformer): The model to attribute
+        graph (Graph): Graph to attribute
+        dataloader (DataLoader): The data over which to attribute
+        metric (Callable[[Tensor], Tensor]): metric to attribute with respect to
+        steps (int, optional): number of IG steps. Defaults to 30.
+        quiet (bool, optional): suppress tqdm output. Defaults to False.
+
+    Returns:
+        Tensor: a [src_nodes, dst_nodes] tensor of scores for each edge
+    """
+    scores = torch.zeros((graph.n_forward, graph.n_backward), device='cuda', dtype=model.cfg.dtype)    
+    
+    total_items = 0
+    dataloader = dataloader if quiet else tqdm(dataloader)
+    for clean, corrupted, label in dataloader:
+
+        if patch_direction == 'patch-in-clean':
+            # In this case, we will patch the corrupted run with the clean activations
+            clean, corrupted = corrupted, clean
+        
+        batch_size = len(clean)
+        total_items += batch_size
+        clean_tokens, attention_mask, input_lengths, n_pos = tokenize_plus(model, clean)
+        corrupted_tokens, _, _, n_pos_corrupted = tokenize_plus(model, corrupted)
+
+        if n_pos != n_pos_corrupted:
+            print(f"Number of positions must match, but do not: {n_pos} (clean) != {n_pos_corrupted} (corrupted)")
+            print(clean)
+            print(corrupted)
+            raise ValueError("Number of positions must match")
+
+        # Here, we get our fwd / bwd hooks and the activation difference matrix
+        # The forward corrupted hooks add the corrupted activations to the activation difference matrix
+        # The forward clean hooks subtract the clean activations 
+        # The backward hooks get the gradient, and use that, plus the activation difference, for the scores
+        (fwd_hooks_corrupted, fwd_hooks_clean, bwd_hooks), activation_difference = make_hooks_and_matrices(model, graph, batch_size, n_pos, scores)
+
+        with torch.inference_mode():
+            with model.hooks(fwd_hooks=fwd_hooks_corrupted):
+                _ = model(corrupted_tokens, attention_mask=attention_mask)
+
+            input_activations_corrupted = activation_difference[:, :, graph.forward_index(graph.nodes['input'])].clone()
+
+            with model.hooks(fwd_hooks=fwd_hooks_clean):
+                clean_logits = model(clean_tokens, attention_mask=attention_mask)
+
+            input_activations_clean = input_activations_corrupted - activation_difference[:, :, graph.forward_index(graph.nodes['input'])]
+
+        def input_interpolation_hook(k: int):
+            def hook_fn(activations, hook):
+                new_input = input_activations_corrupted + (k / steps) * (input_activations_clean - input_activations_corrupted) 
+                new_input.requires_grad = True 
+                return new_input
+            return hook_fn
+
+        total_steps = 0
+        for step in range(0, steps):
+            total_steps += 1
+            with model.hooks(fwd_hooks=[(graph.nodes['input'].out_hook, input_interpolation_hook(step))], bwd_hooks=bwd_hooks):
+                logits = model(clean_tokens, attention_mask=attention_mask)
+                metric_value = metric(logits, clean_logits, input_lengths, label)
+                if torch.isnan(metric_value).any().item():
+                    print("Metric value is NaN")
+                    print(f"Clean: {clean}")
+                    print(f"Corrupted: {corrupted}")
+                    print(f"Label: {label}")
+                    print(f"Metric: {metric}")
+                    raise ValueError("Metric value is NaN")
+                metric_value.backward()
+            
+            if torch.isnan(scores).any().item():
+                print("Metric value is NaN")
+                print(f"Clean: {clean}")
+                print(f"Corrupted: {corrupted}")
+                print(f"Label: {label}")
+                print(f"Metric: {metric}")
+                print(f'Step: {step}')
+                raise ValueError("Metric value is NaN")
+
+    scores /= total_items
+    scores /= total_steps
+
+    return scores
+
+
 def get_scores_ig_activations_directional_edge(
     model: HookedTransformer, graph: Graph, dataloader: DataLoader, 
     metric: Callable[[Tensor], Tensor], intervention: Literal['patching', 'zero', 'mean','mean-positional', 'optimal']='patching', 
@@ -131,6 +224,51 @@ def custom_attribute_edge(model: HookedTransformer, graph: Graph, dataloader: Da
         model, graph, dataloader, metric, intervention=intervention, 
         intervention_dataloader=intervention_dataloader, 
         optimal_ablation_path=optimal_ablation_path, quiet=quiet,
+        patch_direction='patch-in-clean')
+
+    # Identify top 10% of components in which scores differ between the two attribution directions
+    scores_asymmetry = asymmetry_score(corrupt_to_clean_scores, clean_to_corrupt_scores)
+    abs_scores_asymmetry = scores_asymmetry.abs()
+    threshold = torch.quantile(abs_scores_asymmetry.flatten(), 0.9)
+
+    latent_components = abs_scores_asymmetry >= threshold
+    latent_components_indices = latent_components.nonzero()
+
+    scores = corrupt_to_clean_scores.clone()
+
+    scores[latent_components.bool()] -= clean_to_corrupt_scores[latent_components.bool()]
+    scores[latent_components.bool()] /= 2
+
+    if aggregation == 'mean':
+        scores /= model.cfg.d_model
+        
+    graph.scores[:] =  scores.to(graph.scores.device)
+
+
+def custom_attribute_inputs_edge(
+    model: HookedTransformer, graph: Graph, dataloader: DataLoader, metric: Callable[[Tensor], Tensor],
+    intervention: Literal['patching', 'zero', 'mean','mean-positional', 'optimal']='patching', aggregation='sum', 
+    ig_steps: Optional[int]=None, intervention_dataloader: Optional[DataLoader]=None, 
+    optimal_ablation_path: Optional[str]=None, quiet=False
+):
+    assert model.cfg.use_attn_result, "Model must be configured to use attention result (model.cfg.use_attn_result)"
+    assert model.cfg.use_split_qkv_input, "Model must be configured to use split qkv inputs (model.cfg.use_split_qkv_input)"
+    assert model.cfg.use_hook_mlp_in, "Model must be configured to use hook MLP in (model.cfg.use_hook_mlp_in)"
+    if model.cfg.n_key_value_heads is not None:
+        assert model.cfg.ungroup_grouped_query_attention, "Model must be configured to ungroup grouped attention (model.cfg.ungroup_grouped_attention)"
+    
+    if aggregation not in allowed_aggregations:
+        raise ValueError(f'aggregation must be in {allowed_aggregations}, but got {aggregation}')
+        
+    # Scores are by default summed across the d_model dimension
+    # This means that scores are a [n_src_nodes, n_dst_nodes] tensor
+
+    corrupt_to_clean_scores = get_scores_inputs_ig_directional_edge(
+        model, graph, dataloader, metric, quiet=quiet,
+        patch_direction='patch-in-corrupt')
+
+    clean_to_corrupt_scores = get_scores_ig_activations_directional_edge(
+        model, graph, dataloader, metric, quiet=quiet,
         patch_direction='patch-in-clean')
 
     # Identify top 10% of components in which scores differ between the two attribution directions

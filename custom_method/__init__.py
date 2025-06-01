@@ -1,3 +1,3 @@
-from .attribute_node import custom_attribute_node, get_scores_ig_activations_directional
-from .attribute import custom_attribute_edge
+from .attribute_node import custom_attribute_node, get_scores_ig_activations_directional, custom_attribute_inputs_node
+from .attribute import custom_attribute_edge, custom_attribute_inputs_edge
 from .utils import asymmetry_score
