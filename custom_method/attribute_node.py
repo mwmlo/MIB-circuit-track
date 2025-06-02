@@ -16,6 +16,82 @@ from eap.attribute_node import make_hooks_and_matrices
 
 from .utils import asymmetry_score
 
+def get_scores_eap_directional(
+    model: HookedTransformer, graph: Graph, dataloader:DataLoader, metric: Callable[[Tensor], Tensor], 
+    intervention: Literal['patching', 'zero', 'mean','mean-positional', 'optimal']='patching', 
+    intervention_dataloader: Optional[DataLoader]=None, optimal_ablation_path: Optional[str] = None, 
+    quiet:bool=False, neuron:bool=False,
+    patch_direction: Literal['patch-in-corrupt', 'patch-in-clean']='patch-in-corrupt'
+):
+    """Gets edge attribution scores using EAP.
+
+    Args:
+        model (HookedTransformer): The model to attribute
+        graph (Graph): Graph to attribute
+        dataloader (DataLoader): The data over which to attribute
+        metric (Callable[[Tensor], Tensor]): metric to attribute with respect to
+        quiet (bool, optional): suppress tqdm output. Defaults to False.
+
+    Returns:
+        Tensor: a [src_nodes, dst_nodes] tensor of scores for each edge
+    """
+    if neuron:
+        scores = torch.zeros((graph.n_forward, graph.cfg.d_model), device='cuda', dtype=model.cfg.dtype)    
+    else:
+        scores = torch.zeros((graph.n_forward), device='cuda', dtype=model.cfg.dtype)    
+
+    if 'mean' in intervention:
+        assert intervention_dataloader is not None, "Intervention dataloader must be provided for mean interventions"
+        per_position = 'positional' in intervention
+        means = compute_mean_activations(model, graph, intervention_dataloader, per_position=per_position)
+        means = means.unsqueeze(0)
+        if not per_position:
+            means = means.unsqueeze(0)
+
+    elif intervention == 'optimal':
+        assert optimal_ablation_path is not None, "Path to pre-computed activations must be provided for optimal ablations"
+        optimal_ablations = load_ablations(model, graph, optimal_ablation_path)
+        optimal_ablations = optimal_ablations.unsqueeze(0).unsqueeze(0)
+    
+    total_items = 0
+    dataloader = dataloader if quiet else tqdm(dataloader)
+    for clean, corrupted, label in dataloader:
+
+        if patch_direction == 'patch-in-clean':
+            # In this case, we will patch the corrupted activations with the clean ones
+            clean, corrupted = corrupted, clean
+        
+        batch_size = len(clean)
+        total_items += batch_size
+        clean_tokens, attention_mask, input_lengths, n_pos = tokenize_plus(model, clean)
+        corrupted_tokens, _, _, _ = tokenize_plus(model, corrupted)
+
+        (fwd_hooks_corrupted, fwd_hooks_clean, bwd_hooks), activation_difference = make_hooks_and_matrices(model, graph, batch_size, n_pos, scores, neuron=neuron)
+
+        with torch.inference_mode():
+            if intervention == 'patching':
+                # We intervene by subtracting out clean and adding in corrupted activations
+                with model.hooks(fwd_hooks_corrupted):
+                    _ = model(corrupted_tokens, attention_mask=attention_mask)
+            elif 'mean' in intervention:
+                # In the case of zero or mean ablation, we skip the adding in corrupted activations
+                # but in mean ablations, we need to add the mean in
+                activation_difference += means
+            elif intervention == 'optimal':
+                activation_difference += optimal_ablations
+
+            # For some metrics (e.g. accuracy or KL), we need the clean logits
+            clean_logits = model(clean_tokens, attention_mask=attention_mask)
+
+        with model.hooks(fwd_hooks=fwd_hooks_clean, bwd_hooks=bwd_hooks):
+            logits = model(clean_tokens, attention_mask=attention_mask)
+            metric_value = metric(logits, clean_logits, input_lengths, label)
+            metric_value.backward()
+
+    scores /= total_items
+
+    return scores
+
 def get_scores_inputs_ig_directional(
     model: HookedTransformer, graph: Graph, dataloader: DataLoader, metric: Callable[[Tensor], Tensor], 
     steps=30, quiet:bool=False, neuron:bool=False, 
@@ -307,3 +383,54 @@ def custom_attribute_inputs_node(
 
 
         
+def custom_attribute_eap_node(
+    model: HookedTransformer, graph: Graph, dataloader: DataLoader, metric: Callable[[Tensor], Tensor], 
+    intervention: Literal['patching', 'zero', 'mean','mean-positional', 'optimal']='patching', 
+    aggregation='sum', ig_steps: Optional[int]=None, intervention_dataloader: Optional[DataLoader]=None, 
+    optimal_ablation_path: Optional[str] = None, quiet:bool=False, neuron:bool=False
+):
+    assert model.cfg.use_attn_result, "Model must be configured to use attention result (model.cfg.use_attn_result)"
+    assert model.cfg.use_split_qkv_input, "Model must be configured to use split qkv inputs (model.cfg.use_split_qkv_input)"
+    assert model.cfg.use_hook_mlp_in, "Model must be configured to use hook MLP in (model.cfg.use_hook_mlp_in)"
+    if model.cfg.n_key_value_heads is not None:
+        assert model.cfg.ungroup_grouped_query_attention, "Model must be configured to ungroup grouped attention (model.cfg.ungroup_grouped_attention)"
+    
+    if aggregation not in allowed_aggregations:
+        raise ValueError(f'aggregation must be in {allowed_aggregations}, but got {aggregation}')
+        
+    # Scores are by default summed across the d_model dimension
+    # This means that scores are a [n_src_nodes, n_dst_nodes] tensor
+
+    # Run Integrated Gradients in both directions
+    corrupt_to_clean_scores = get_scores_eap_directional(
+        model, graph, dataloader, metric, intervention=intervention, 
+        intervention_dataloader=intervention_dataloader, 
+        optimal_ablation_path=optimal_ablation_path, quiet=quiet,
+        neuron=neuron, patch_direction='patch-in-corrupt')
+
+    clean_to_corrupt_scores = get_scores_eap_directional(
+        model, graph, dataloader, metric, intervention=intervention, 
+        intervention_dataloader=intervention_dataloader, 
+        optimal_ablation_path=optimal_ablation_path, quiet=quiet,
+        neuron=neuron, patch_direction='patch-in-clean')
+
+    # Identify top 10% of components in which scores differ between the two attribution directions
+    scores_asymmetry = asymmetry_score(corrupt_to_clean_scores, clean_to_corrupt_scores)
+    abs_scores_asymmetry = scores_asymmetry.abs()
+    threshold = torch.quantile(abs_scores_asymmetry.flatten(), 0.9)
+
+    latent_components = abs_scores_asymmetry >= threshold
+    latent_components_indices = latent_components.nonzero()
+
+    scores = corrupt_to_clean_scores.clone()
+
+    scores[latent_components.bool()] -= clean_to_corrupt_scores[latent_components.bool()]
+    scores[latent_components.bool()] /= 2
+
+    if aggregation == 'mean':
+        scores /= model.cfg.d_model
+        
+    if neuron:
+        graph.neurons_scores[:] = scores.to(graph.scores.device) # (n_forward, d_model)
+    else:
+        graph.nodes_scores[:] = scores.to(graph.scores.device) # (n_forward,)

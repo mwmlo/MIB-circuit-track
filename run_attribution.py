@@ -14,7 +14,7 @@ from eap.attribute_node import attribute_node
 from MIB_circuit_track.metrics import get_metric
 from MIB_circuit_track.utils import MODEL_NAME_TO_FULLNAME, TASKS_TO_HF_NAMES, COL_MAPPING
 
-from custom_method import custom_attribute_node, custom_attribute_inputs_node, custom_attribute_edge, custom_attribute_inputs_edge
+from custom_method import custom_attribute_node, custom_attribute_inputs_node, custom_attribute_edge, custom_attribute_inputs_edge, custom_attribute_eap_node, custom_attribute_eap_edge
 
 
 def load_interpbench_model():
@@ -95,6 +95,10 @@ if __name__ == "__main__":
                     custom_attribute_inputs_edge(model, graph, dataloader, attribution_metric, args.ablation,
                                                  ig_steps=args.ig_steps, intervention_dataloader=dataloader,
                                                  optimal_ablation_path=args.optimal_ablation_path)
+                elif args.method == 'custom-eap':
+                    custom_attribute_eap_edge(model, graph, dataloader, attribution_metric, args.ablation,
+                                              ig_steps=args.ig_steps, intervention_dataloader=dataloader,
+                                              optimal_ablation_path=args.optimal_ablation_path)
                 else:
                     attribute(model, graph, dataloader, attribution_metric, args.method, args.ablation, 
                                 ig_steps=args.ig_steps, optimal_ablation_path=args.optimal_ablation_path,
@@ -110,6 +114,11 @@ if __name__ == "__main__":
                                                  neuron=args.level == 'neuron', ig_steps=args.ig_steps,
                                                  optimal_ablation_path=args.optimal_ablation_path,
                                                  intervention_dataloader=dataloader)
+                elif args.method == 'custom-eap':
+                    custom_attribute_eap_node(model, graph, dataloader, attribution_metric, args.ablation, 
+                                              neuron=args.level == 'neuron', ig_steps=args.ig_steps,
+                                              optimal_ablation_path=args.optimal_ablation_path,
+                                              intervention_dataloader=dataloader)
                 else:
                     attribute_node(model, graph, dataloader, attribution_metric, args.method, 
                                     args.ablation, neuron=args.level == 'neuron', ig_steps=args.ig_steps,
