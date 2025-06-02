@@ -80,13 +80,14 @@ if __name__ == "__main__":
             else:
                 eval_auc_outputs = evaluate_area_under_curve(model, graph, dataloader, attribution_metric, level=args.level, 
                                                             absolute=args.absolute)
-                weighted_edge_counts, area_under, area_from_1, average, faithfulnesses = eval_auc_outputs
+                weighted_edge_counts, area_under, area_from_1, average, faithfulnesses, faithfulnesses_std = eval_auc_outputs
                 d = {
                     "weighted_edge_counts": weighted_edge_counts,
                     "area_under": area_under,
                     "area_from_1": area_from_1,
                     "average": average,
-                    "faithfulnesses": faithfulnesses
+                    "faithfulnesses": faithfulnesses,
+                    "faithfulnesses_std": faithfulnesses_std,
                 }
 
             method_name_saveable = f"{args.method}_{args.ablation}_{args.level}"

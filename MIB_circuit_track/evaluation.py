@@ -31,6 +31,7 @@ def evaluate_area_under_curve(model: HookedTransformer, graph: Graph, dataloader
     percentages = (.001, .002, .005, .01, .02, .05, .1, .2, .5, 1)
 
     faithfulnesses = []
+    faithfulnesses_std = []
     weighted_edge_counts = []
     for pct in percentages:
         this_graph = graph
@@ -45,15 +46,21 @@ def evaluate_area_under_curve(model: HookedTransformer, graph: Graph, dataloader
         weighted_edge_count = this_graph.weighted_edge_count()
         weighted_edge_counts.append(weighted_edge_count)
 
-        ablated_score = evaluate_graph(model, this_graph, dataloader, metrics,
-                                       quiet=quiet, intervention=intervention,
-                                       intervention_dataloader=intervention_dataloader,
-                                       optimal_ablation_path=optimal_ablation_path).mean().item()
+        ablated = evaluate_graph(model, this_graph, dataloader, metrics,
+                                quiet=quiet, intervention=intervention,
+                                intervention_dataloader=intervention_dataloader,
+                                optimal_ablation_path=optimal_ablation_path)
+        ablated_score = ablated.mean().item()
+        ablated_std = ablated.std().item()
+
         if no_normalize:
             faithfulness = ablated_score
+            faithfulness_std = ablated_std
         else:
             faithfulness = (ablated_score - corrupted_score) / (baseline_score - corrupted_score)
+            faithfulness_std = ablated_std / abs(baseline_score - corrupted_score)
         faithfulnesses.append(faithfulness)
+        faithfulnesses_std.append(faithfulness_std)
     
     area_under = 0.
     area_from_1 = 0.
@@ -72,7 +79,7 @@ def evaluate_area_under_curve(model: HookedTransformer, graph: Graph, dataloader
         trapezoidal = (x_2 - x_1) * ((faithfulnesses[i_1] + faithfulnesses[i_2]) / 2)
         area_under += trapezoidal
     average = sum(faithfulnesses) / len(faithfulnesses)
-    return weighted_edge_counts, area_under, area_from_1, average, faithfulnesses
+    return weighted_edge_counts, area_under, area_from_1, average, faithfulnesses, faithfulnesses_std
 
 
 def compare_graphs(reference: Graph, hypothesis: Graph, by_node: bool = False):
