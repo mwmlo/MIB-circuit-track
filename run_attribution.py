@@ -106,22 +106,22 @@ if __name__ == "__main__":
             else:
                 if args.method == 'custom':
                     custom_attribute_node(model, graph, dataloader, attribution_metric, args.ablation, 
-                                          neuron=args.level == 'neuron', ig_steps=args.ig_steps, 
+                                          neuron=neuron_level, ig_steps=args.ig_steps, 
                                           optimal_ablation_path=args.optimal_ablation_path,
                                           intervention_dataloader=dataloader)
                 elif args.method == 'custom-inputs':
                     custom_attribute_inputs_node(model, graph, dataloader, attribution_metric, args.ablation, 
-                                                 neuron=args.level == 'neuron', ig_steps=args.ig_steps,
+                                                 neuron=neuron_level, ig_steps=args.ig_steps,
                                                  optimal_ablation_path=args.optimal_ablation_path,
                                                  intervention_dataloader=dataloader)
                 elif args.method == 'custom-eap':
                     custom_attribute_eap_node(model, graph, dataloader, attribution_metric, args.ablation, 
-                                              neuron=args.level == 'neuron', ig_steps=args.ig_steps,
+                                              neuron=neuron_level, ig_steps=args.ig_steps,
                                               optimal_ablation_path=args.optimal_ablation_path,
                                               intervention_dataloader=dataloader)
                 else:
                     attribute_node(model, graph, dataloader, attribution_metric, args.method, 
-                                    args.ablation, neuron=args.level == 'neuron', ig_steps=args.ig_steps,
+                                    args.ablation, neuron=neuron_level, ig_steps=args.ig_steps,
                                     optimal_ablation_path=args.optimal_ablation_path,
                                     intervention_dataloader=dataloader)
 
